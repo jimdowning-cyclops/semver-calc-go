@@ -181,7 +181,58 @@ feat: global improvement             # affects ALL products (unscoped)
 
 ## CI/CD Integration
 
-### Bitrise example
+### Bitrise Step
+
+This tool is available as a native Bitrise step. Add it to your workflow:
+
+```yaml
+workflows:
+  deploy:
+    steps:
+      - git::https://github.com/jimdowning-cyclops/semver-calc-go.git@main:
+          title: Calculate semantic version
+          inputs:
+            - product: myapp
+            - scopes: myapp,app,core
+      - script:
+          title: Use calculated version
+          inputs:
+            - content: |
+                echo "Current version: $SEMVER_CURRENT"
+                echo "Next version: $SEMVER_NEXT"
+                echo "Bump level: $SEMVER_BUMP"
+
+                if [ "$SEMVER_BUMP" = "none" ]; then
+                  echo "No version bump needed"
+                  exit 0
+                fi
+
+                # Use SEMVER_NEXT in subsequent steps
+                echo "Deploying version $SEMVER_NEXT..."
+```
+
+#### Inputs
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `product` | Yes | Product name for tag prefix lookup |
+| `scopes` | Yes | Comma-separated list of scopes to match |
+
+#### Outputs
+
+The step exports the following environment variables for use in subsequent steps:
+
+| Output | Description |
+|--------|-------------|
+| `SEMVER_PRODUCT` | Product name from input |
+| `SEMVER_CURRENT` | Current version from last tag (or `0.0.0`) |
+| `SEMVER_NEXT` | Calculated next version |
+| `SEMVER_BUMP` | Bump level: `major`, `minor`, `patch`, or `none` |
+| `SEMVER_COMMITS` | Number of matching commits since last tag |
+
+### Bitrise Script Example (Alternative)
+
+If you prefer to run the CLI directly instead of using the step:
 
 ```yaml
 - script@1:

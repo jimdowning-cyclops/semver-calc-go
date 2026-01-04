@@ -1,0 +1,116 @@
+format_version: "11"
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+
+app:
+  envs:
+    - STEP_ID: semver-calc
+    - STEP_VERSION: "0.0.1"
+    - STEP_GIT_CLONE_URL: https://github.com/jimdowning-cyclops/semver-calc-go.git
+    - MY_STEPLIB_REPO_FORK_GIT_URL: $MY_STEPLIB_REPO_FORK_GIT_URL
+
+workflows:
+  test:
+    title: Test the step
+    steps:
+      - change-workdir:
+          title: Switch to test directory
+          inputs:
+            - path: ./_tmp
+            - is_create_path: true
+      - script:
+          title: Set up test git repository
+          inputs:
+            - content: |
+                #!/bin/bash
+                set -ex
+                git init
+                git config user.email "test@example.com"
+                git config user.name "Test User"
+                echo "test" > file.txt
+                git add .
+                git commit -m "feat(myapp): initial commit"
+                git tag myapp-v1.0.0
+                echo "update" >> file.txt
+                git add .
+                git commit -m "feat(myapp): add feature"
+      - path::./:
+          title: Run semver-calc step
+          inputs:
+            - product: myapp
+            - scopes: myapp
+      - script:
+          title: Verify outputs
+          inputs:
+            - content: |
+                #!/bin/bash
+                set -ex
+                echo "SEMVER_PRODUCT: $SEMVER_PRODUCT"
+                echo "SEMVER_CURRENT: $SEMVER_CURRENT"
+                echo "SEMVER_NEXT: $SEMVER_NEXT"
+                echo "SEMVER_BUMP: $SEMVER_BUMP"
+                echo "SEMVER_COMMITS: $SEMVER_COMMITS"
+
+                # Verify expected values
+                if [ "$SEMVER_PRODUCT" != "myapp" ]; then
+                  echo "ERROR: SEMVER_PRODUCT should be 'myapp', got '$SEMVER_PRODUCT'"
+                  exit 1
+                fi
+                if [ "$SEMVER_CURRENT" != "1.0.0" ]; then
+                  echo "ERROR: SEMVER_CURRENT should be '1.0.0', got '$SEMVER_CURRENT'"
+                  exit 1
+                fi
+                if [ "$SEMVER_NEXT" != "1.1.0" ]; then
+                  echo "ERROR: SEMVER_NEXT should be '1.1.0', got '$SEMVER_NEXT'"
+                  exit 1
+                fi
+                if [ "$SEMVER_BUMP" != "minor" ]; then
+                  echo "ERROR: SEMVER_BUMP should be 'minor', got '$SEMVER_BUMP'"
+                  exit 1
+                fi
+                if [ "$SEMVER_COMMITS" != "1" ]; then
+                  echo "ERROR: SEMVER_COMMITS should be '1', got '$SEMVER_COMMITS'"
+                  exit 1
+                fi
+                echo "All outputs verified successfully!"
+
+  unit-test:
+    title: Run Go unit tests
+    steps:
+      - script:
+          title: Run tests
+          inputs:
+            - content: |
+                #!/bin/bash
+                set -ex
+                go test ./...
+
+  audit-this-step:
+    title: Audit the step
+    steps:
+      - script:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -ex
+                stepman audit --step-yml ./step.yml
+
+  share-this-step:
+    title: Share the step
+    description: |-
+      Share the step to the Steplib.
+      You must set the MY_STEPLIB_REPO_FORK_GIT_URL env var before running this workflow.
+    before_run:
+      - audit-this-step
+    envs:
+      - BITRISE_STEP_ID: $STEP_ID
+      - BITRISE_STEP_VERSION: $STEP_VERSION
+      - BITRISE_STEP_GIT_CLONE_URL: $STEP_GIT_CLONE_URL
+    steps:
+      - script:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -ex
+                bitrise share start -c "${MY_STEPLIB_REPO_FORK_GIT_URL}"
+                bitrise share create --stepid "${BITRISE_STEP_ID}" --tag "${BITRISE_STEP_VERSION}" --git "${BITRISE_STEP_GIT_CLONE_URL}"
+                bitrise share finish

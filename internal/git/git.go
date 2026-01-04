@@ -77,7 +77,7 @@ func FindLastTag(product string) (string, version.Version, error) {
 }
 
 // GetCommitsSince returns all commits since the given tag (or all commits if tag is empty).
-// Uses null byte separators to reliably parse multi-line commit bodies.
+// Uses a unique separator to reliably parse multi-line commit bodies.
 // Returns empty slice if there are no commits.
 func GetCommitsSince(tag string) ([]CommitInfo, error) {
 	// First check if there are any commits at all
@@ -85,9 +85,10 @@ func GetCommitsSince(tag string) ([]CommitInfo, error) {
 		return nil, nil
 	}
 
-	// Format: hash<NUL>subject<NUL>body<NUL><NUL>
-	// Using double NUL to separate commits since body can contain newlines
-	format := "%H%x00%s%x00%b%x00%x00"
+	// Use a unique separator that won't appear in commit messages
+	const sep = "---COMMIT-SEP---"
+	const fieldSep = "---FIELD-SEP---"
+	format := "%H" + fieldSep + "%s" + fieldSep + "%b" + sep
 
 	var cmd *exec.Cmd
 	if tag == "" {
@@ -101,7 +102,7 @@ func GetCommitsSince(tag string) ([]CommitInfo, error) {
 		return nil, fmt.Errorf("failed to get git log: %w", err)
 	}
 
-	return parseCommits(string(output)), nil
+	return parseCommits(string(output), sep, fieldSep), nil
 }
 
 // hasCommits checks if the repository has any commits.
@@ -111,14 +112,14 @@ func hasCommits() bool {
 	return err == nil
 }
 
-// parseCommits parses the git log output with null-byte separators.
-func parseCommits(output string) []CommitInfo {
+// parseCommits parses the git log output with custom separators.
+func parseCommits(output, commitSep, fieldSep string) []CommitInfo {
 	if output == "" {
 		return nil
 	}
 
-	// Split by double null (commit separator)
-	rawCommits := strings.Split(output, "\x00\x00")
+	// Split by commit separator
+	rawCommits := strings.Split(output, commitSep)
 
 	var commits []CommitInfo
 	for _, raw := range rawCommits {
@@ -127,15 +128,15 @@ func parseCommits(output string) []CommitInfo {
 			continue
 		}
 
-		// Split by single null (field separator)
-		parts := strings.SplitN(raw, "\x00", 3)
+		// Split by field separator
+		parts := strings.SplitN(raw, fieldSep, 3)
 		if len(parts) < 2 {
 			continue
 		}
 
 		c := CommitInfo{
-			Hash:    parts[0],
-			Subject: parts[1],
+			Hash:    strings.TrimSpace(parts[0]),
+			Subject: strings.TrimSpace(parts[1]),
 		}
 		if len(parts) > 2 {
 			c.Body = strings.TrimSpace(parts[2])

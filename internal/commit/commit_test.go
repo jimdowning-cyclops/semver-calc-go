@@ -173,33 +173,51 @@ func TestMatchesScopes(t *testing.T) {
 	}{
 		{
 			name:   "exact match",
-			commit: Commit{Scope: "smartfittings"},
+			commit: Commit{Type: "feat", Scope: "smartfittings"},
 			scopes: []string{"smartfittings", "app"},
 			want:   true,
 		},
 		{
 			name:   "match second scope",
-			commit: Commit{Scope: "app"},
+			commit: Commit{Type: "fix", Scope: "app"},
 			scopes: []string{"smartfittings", "app"},
 			want:   true,
 		},
 		{
 			name:   "no match",
-			commit: Commit{Scope: "sdk"},
+			commit: Commit{Type: "feat", Scope: "sdk"},
 			scopes: []string{"smartfittings", "app"},
 			want:   false,
 		},
 		{
-			name:   "empty scope",
-			commit: Commit{Scope: ""},
+			name:   "unscoped conventional commit matches all",
+			commit: Commit{Type: "feat", Scope: ""},
+			scopes: []string{"smartfittings", "app"},
+			want:   true,
+		},
+		{
+			name:   "unscoped fix matches all",
+			commit: Commit{Type: "fix", Scope: ""},
+			scopes: []string{"sdk"},
+			want:   true,
+		},
+		{
+			name:   "non-conventional commit (no type) matches nothing",
+			commit: Commit{Type: "", Scope: ""},
 			scopes: []string{"smartfittings", "app"},
 			want:   false,
 		},
 		{
-			name:   "empty scopes list",
-			commit: Commit{Scope: "smartfittings"},
+			name:   "empty scopes list with scoped commit",
+			commit: Commit{Type: "feat", Scope: "smartfittings"},
 			scopes: []string{},
 			want:   false,
+		},
+		{
+			name:   "empty scopes list with unscoped commit still matches",
+			commit: Commit{Type: "feat", Scope: ""},
+			scopes: []string{},
+			want:   true,
 		},
 	}
 
@@ -314,7 +332,8 @@ func TestFilterByScopes(t *testing.T) {
 		{Type: "fix", Scope: "bluemax"},
 		{Type: "feat", Scope: "app"},
 		{Type: "fix", Scope: "sdk"},
-		{Type: "refactor", Scope: ""},
+		{Type: "refactor", Scope: ""},           // unscoped - matches all
+		{Type: "", Scope: "", Description: "x"}, // non-conventional - matches nothing
 	}
 
 	tests := []struct {
@@ -325,22 +344,22 @@ func TestFilterByScopes(t *testing.T) {
 		{
 			name:   "smartfittings and app",
 			scopes: []string{"smartfittings", "app"},
-			want:   2,
+			want:   3, // smartfittings + app + unscoped
 		},
 		{
 			name:   "only sdk",
 			scopes: []string{"sdk"},
-			want:   1,
+			want:   2, // sdk + unscoped
 		},
 		{
-			name:   "no match",
+			name:   "harkensr only gets unscoped",
 			scopes: []string{"harkensr"},
-			want:   0,
+			want:   1, // just the unscoped commit
 		},
 		{
-			name:   "all products",
+			name:   "all scoped products plus unscoped",
 			scopes: []string{"smartfittings", "bluemax", "app", "sdk"},
-			want:   4,
+			want:   5, // all 4 scoped + unscoped
 		},
 	}
 

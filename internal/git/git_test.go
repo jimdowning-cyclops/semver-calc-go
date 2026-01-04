@@ -442,16 +442,16 @@ func TestVersionCalculation_Integration(t *testing.T) {
 			setup: func(t *testing.T, dir string) {
 				makeCommit(t, dir, "initial")
 				makeTag(t, dir, "myapp-v1.0.0")
-				makeCommit(t, dir, "WIP: work in progress")
-				makeCommit(t, dir, "Merge branch 'feature'")
-				makeCommit(t, dir, "fix(myapp): actual fix")
+				makeCommit(t, dir, "WIP: work in progress")       // matches (unscoped conventional)
+				makeCommit(t, dir, "Merge branch 'feature'")      // ignored (not conventional)
+				makeCommit(t, dir, "fix(myapp): actual fix")      // matches (scoped)
 			},
 			product:     "myapp",
 			scopes:      []string{"myapp"},
 			wantCurrent: "1.0.0",
 			wantNext:    "1.0.1",
 			wantBump:    "patch",
-			wantCommits: 1, // Only the fix
+			wantCommits: 2, // WIP (unscoped) + fix; Merge is not conventional so ignored
 		},
 		{
 			name: "highest bump wins",
@@ -565,7 +565,7 @@ func TestVersionCalculation_Integration(t *testing.T) {
 			wantCommits: 1,
 		},
 		{
-			name: "commits without scope are ignored",
+			name: "unscoped commits match all products",
 			setup: func(t *testing.T, dir string) {
 				makeCommit(t, dir, "initial")
 				makeTag(t, dir, "myapp-v1.0.0")
@@ -575,9 +575,9 @@ func TestVersionCalculation_Integration(t *testing.T) {
 			product:     "myapp",
 			scopes:      []string{"myapp"},
 			wantCurrent: "1.0.0",
-			wantNext:    "1.0.0",
-			wantBump:    "none",
-			wantCommits: 0, // No scope = no match
+			wantNext:    "1.1.0",
+			wantBump:    "minor",
+			wantCommits: 2, // Unscoped commits match all products
 		},
 		{
 			name: "mixed scoped and unscoped commits",
@@ -591,8 +591,22 @@ func TestVersionCalculation_Integration(t *testing.T) {
 			product:     "myapp",
 			scopes:      []string{"myapp"},
 			wantCurrent: "1.0.0",
-			wantNext:    "1.0.1",
-			wantBump:    "patch", // Only the scoped fix counts
+			wantNext:    "1.1.0",
+			wantBump:    "minor", // feat (unscoped) wins
+			wantCommits: 3,       // All three match
+		},
+		{
+			name: "unscoped breaking change affects all products",
+			setup: func(t *testing.T, dir string) {
+				makeCommit(t, dir, "initial")
+				makeTag(t, dir, "sdk-v1.0.0")
+				makeCommit(t, dir, "feat!: global breaking change")
+			},
+			product:     "sdk",
+			scopes:      []string{"sdk"},
+			wantCurrent: "1.0.0",
+			wantNext:    "2.0.0",
+			wantBump:    "major",
 			wantCommits: 1,
 		},
 		{

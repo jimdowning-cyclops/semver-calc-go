@@ -27,6 +27,19 @@ func testConfig() *config.Config {
 	}
 }
 
+func testConfigNoGlob() *config.Config {
+	return &config.Config{
+		Products: map[string]config.ProductConfig{
+			"catch-all": {
+				// No globs - should match everything
+			},
+			"mobile": {
+				Globs: []string{"apps/mobile/**"},
+			},
+		},
+	}
+}
+
 func testConfigMultiGlob() *config.Config {
 	return &config.Config{
 		Products: map[string]config.ProductConfig{
@@ -165,6 +178,58 @@ func TestMatchFiles_MultiGlob(t *testing.T) {
 			name:  "no match in either glob",
 			files: []string{"libs/shared/util.ts"},
 			want:  []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := m.MatchFiles(tt.files)
+			sort.Strings(got)
+			sort.Strings(tt.want)
+
+			if len(got) != len(tt.want) {
+				t.Errorf("got %v, want %v", got, tt.want)
+				return
+			}
+
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("got %v, want %v", got, tt.want)
+					return
+				}
+			}
+		})
+	}
+}
+
+func TestMatchFiles_NoGlob(t *testing.T) {
+	cfg := testConfigNoGlob()
+	m, _ := NewMatcher(cfg)
+
+	tests := []struct {
+		name  string
+		files []string
+		want  []string
+	}{
+		{
+			name:  "no-glob product matches any file",
+			files: []string{"any/random/path.ts"},
+			want:  []string{"catch-all"},
+		},
+		{
+			name:  "no-glob product matches mobile files too",
+			files: []string{"apps/mobile/main.ts"},
+			want:  []string{"catch-all", "mobile"},
+		},
+		{
+			name:  "no-glob product matches deeply nested files",
+			files: []string{"a/b/c/d/e/f/g.txt"},
+			want:  []string{"catch-all"},
+		},
+		{
+			name:  "no-glob product matches root files",
+			files: []string{"README.md"},
+			want:  []string{"catch-all"},
 		},
 	}
 

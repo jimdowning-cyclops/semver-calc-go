@@ -70,12 +70,6 @@ func (c *Config) validate() error {
 		return fmt.Errorf("config must define at least one product")
 	}
 
-	for name, product := range c.Products {
-		if len(product.Globs) == 0 {
-			return fmt.Errorf("product %q must have at least one glob pattern", name)
-		}
-	}
-
 	return nil
 }
 

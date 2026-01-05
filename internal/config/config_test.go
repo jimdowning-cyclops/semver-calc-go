@@ -62,23 +62,21 @@ func TestLoad(t *testing.T) {
 			errContains: "at least one product",
 		},
 		{
-			name: "missing globs",
+			name: "missing globs uses default match-all",
 			content: `products:
   mobile:
     variants: [customerA]
 `,
-			wantErr:     true,
-			errContains: "at least one glob pattern",
+			wantErr: false,
 		},
 		{
-			name: "empty globs array",
+			name: "empty globs array uses default match-all",
 			content: `products:
   mobile:
     globs: []
     variants: [customerA]
 `,
-			wantErr:     true,
-			errContains: "at least one glob pattern",
+			wantErr: false,
 		},
 		{
 			name:        "invalid yaml",

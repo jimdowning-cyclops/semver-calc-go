@@ -23,6 +23,9 @@ func NewMatcher(cfg *config.Config) (*Matcher, error) {
 	// Compile all glob patterns for each product
 	for productName := range cfg.Products {
 		patterns, _ := cfg.GetGlobs(productName)
+		if len(patterns) == 0 {
+			patterns = []string{"**"} // Default: match all files
+		}
 		var compiledGlobs []glob.Glob
 		for _, pattern := range patterns {
 			g, err := glob.Compile(pattern, '/')

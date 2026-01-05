@@ -17,10 +17,21 @@ func TestLoad(t *testing.T) {
 			name: "valid config with variants",
 			content: `products:
   mobile:
-    glob: "apps/mobile/**"
+    globs: ["apps/mobile/**"]
     variants: [customerA, customerB, internal]
   web:
-    glob: "apps/web/**"
+    globs: ["apps/web/**"]
+    variants: [customerA, customerB]
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid config with multiple globs",
+			content: `products:
+  mobile:
+    globs:
+      - "apps/mobile/**"
+      - "libs/mobile-common/**"
     variants: [customerA, customerB]
 `,
 			wantErr: false,
@@ -29,7 +40,7 @@ func TestLoad(t *testing.T) {
 			name: "valid config without variants",
 			content: `products:
   sample-app:
-    glob: "apps/sample/**"
+    globs: ["apps/sample/**"]
 `,
 			wantErr: false,
 		},
@@ -37,10 +48,10 @@ func TestLoad(t *testing.T) {
 			name: "mixed products with and without variants",
 			content: `products:
   mobile:
-    glob: "apps/mobile/**"
+    globs: ["apps/mobile/**"]
     variants: [customerA, customerB]
   sample-app:
-    glob: "apps/sample/**"
+    globs: ["apps/sample/**"]
 `,
 			wantErr: false,
 		},
@@ -51,13 +62,23 @@ func TestLoad(t *testing.T) {
 			errContains: "at least one product",
 		},
 		{
-			name: "missing glob",
+			name: "missing globs",
 			content: `products:
   mobile:
     variants: [customerA]
 `,
 			wantErr:     true,
-			errContains: "must have a glob pattern",
+			errContains: "at least one glob pattern",
+		},
+		{
+			name: "empty globs array",
+			content: `products:
+  mobile:
+    globs: []
+    variants: [customerA]
+`,
+			wantErr:     true,
+			errContains: "at least one glob pattern",
 		},
 		{
 			name:        "invalid yaml",
@@ -103,7 +124,7 @@ func TestLoadFromDir(t *testing.T) {
 	dir := t.TempDir()
 	content := `products:
   mobile:
-    glob: "apps/mobile/**"
+    globs: ["apps/mobile/**"]
 `
 	if err := os.WriteFile(filepath.Join(dir, ".semver.yml"), []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write temp config: %v", err)
@@ -128,10 +149,10 @@ func TestLoadMissingFile(t *testing.T) {
 func TestParse(t *testing.T) {
 	content := `products:
   mobile:
-    glob: "apps/mobile/**"
+    globs: ["apps/mobile/**", "libs/mobile-common/**"]
     variants: [customerA, customerB]
   web:
-    glob: "apps/web/**"
+    globs: ["apps/web/**"]
 `
 	cfg, err := Parse(content)
 	if err != nil {
@@ -142,8 +163,12 @@ func TestParse(t *testing.T) {
 		t.Errorf("expected 2 products, got %d", len(cfg.Products))
 	}
 
-	if cfg.Products["mobile"].Glob != "apps/mobile/**" {
-		t.Errorf("unexpected glob: %s", cfg.Products["mobile"].Glob)
+	if len(cfg.Products["mobile"].Globs) != 2 {
+		t.Errorf("expected 2 globs for mobile, got %d", len(cfg.Products["mobile"].Globs))
+	}
+
+	if cfg.Products["mobile"].Globs[0] != "apps/mobile/**" {
+		t.Errorf("unexpected first glob: %s", cfg.Products["mobile"].Globs[0])
 	}
 
 	if len(cfg.Products["mobile"].Variants) != 2 {
@@ -188,15 +213,15 @@ func TestConfig_GetAllProductVariants(t *testing.T) {
 	cfg := &Config{
 		Products: map[string]ProductConfig{
 			"mobile": {
-				Glob:     "apps/mobile/**",
+				Globs:    []string{"apps/mobile/**"},
 				Variants: []string{"customerA", "customerB"},
 			},
 			"web": {
-				Glob:     "apps/web/**",
+				Globs:    []string{"apps/web/**"},
 				Variants: []string{"customerA"},
 			},
 			"sample-app": {
-				Glob: "apps/sample/**",
+				Globs: []string{"apps/sample/**"},
 				// No variants
 			},
 		},
@@ -230,11 +255,11 @@ func TestConfig_GetVariantsForProduct(t *testing.T) {
 	cfg := &Config{
 		Products: map[string]ProductConfig{
 			"mobile": {
-				Glob:     "apps/mobile/**",
+				Globs:    []string{"apps/mobile/**"},
 				Variants: []string{"customerA", "customerB"},
 			},
 			"sample-app": {
-				Glob: "apps/sample/**",
+				Globs: []string{"apps/sample/**"},
 			},
 		},
 	}
@@ -274,11 +299,11 @@ func TestConfig_HasVariants(t *testing.T) {
 	cfg := &Config{
 		Products: map[string]ProductConfig{
 			"mobile": {
-				Glob:     "apps/mobile/**",
+				Globs:    []string{"apps/mobile/**"},
 				Variants: []string{"customerA"},
 			},
 			"sample-app": {
-				Glob: "apps/sample/**",
+				Globs: []string{"apps/sample/**"},
 			},
 		},
 	}
@@ -294,24 +319,30 @@ func TestConfig_HasVariants(t *testing.T) {
 	}
 }
 
-func TestConfig_GetGlob(t *testing.T) {
+func TestConfig_GetGlobs(t *testing.T) {
 	cfg := &Config{
 		Products: map[string]ProductConfig{
 			"mobile": {
-				Glob: "apps/mobile/**",
+				Globs: []string{"apps/mobile/**", "libs/mobile-common/**"},
 			},
 		},
 	}
 
-	glob, ok := cfg.GetGlob("mobile")
+	globs, ok := cfg.GetGlobs("mobile")
 	if !ok {
 		t.Error("expected product to exist")
 	}
-	if glob != "apps/mobile/**" {
-		t.Errorf("got glob %q, want %q", glob, "apps/mobile/**")
+	if len(globs) != 2 {
+		t.Errorf("got %d globs, want 2", len(globs))
+	}
+	if globs[0] != "apps/mobile/**" {
+		t.Errorf("got first glob %q, want %q", globs[0], "apps/mobile/**")
+	}
+	if globs[1] != "libs/mobile-common/**" {
+		t.Errorf("got second glob %q, want %q", globs[1], "libs/mobile-common/**")
 	}
 
-	_, ok = cfg.GetGlob("nonexistent")
+	_, ok = cfg.GetGlobs("nonexistent")
 	if ok {
 		t.Error("expected product to not exist")
 	}
@@ -320,9 +351,9 @@ func TestConfig_GetGlob(t *testing.T) {
 func TestConfig_ProductNames(t *testing.T) {
 	cfg := &Config{
 		Products: map[string]ProductConfig{
-			"mobile":     {Glob: "apps/mobile/**"},
-			"web":        {Glob: "apps/web/**"},
-			"sample-app": {Glob: "apps/sample/**"},
+			"mobile":     {Globs: []string{"apps/mobile/**"}},
+			"web":        {Globs: []string{"apps/web/**"}},
+			"sample-app": {Globs: []string{"apps/sample/**"}},
 		},
 	}
 

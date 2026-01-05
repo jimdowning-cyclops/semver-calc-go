@@ -14,9 +14,9 @@ type Config struct {
 	Products map[string]ProductConfig `yaml:"products"`
 }
 
-// ProductConfig defines a product with its file glob and optional variants.
+// ProductConfig defines a product with its file globs and optional variants.
 type ProductConfig struct {
-	Glob     string   `yaml:"glob"`
+	Globs    []string `yaml:"globs"`
 	Variants []string `yaml:"variants,omitempty"`
 }
 
@@ -71,8 +71,8 @@ func (c *Config) validate() error {
 	}
 
 	for name, product := range c.Products {
-		if product.Glob == "" {
-			return fmt.Errorf("product %q must have a glob pattern", name)
+		if len(product.Globs) == 0 {
+			return fmt.Errorf("product %q must have at least one glob pattern", name)
 		}
 	}
 
@@ -145,13 +145,13 @@ func (c *Config) HasVariants(product string) bool {
 	return len(productCfg.Variants) > 0
 }
 
-// GetGlob returns the glob pattern for a product.
-func (c *Config) GetGlob(product string) (string, bool) {
+// GetGlobs returns the glob patterns for a product.
+func (c *Config) GetGlobs(product string) ([]string, bool) {
 	productCfg, ok := c.Products[product]
 	if !ok {
-		return "", false
+		return nil, false
 	}
-	return productCfg.Glob, true
+	return productCfg.Globs, true
 }
 
 // ProductNames returns all product names sorted alphabetically.

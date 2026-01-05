@@ -12,16 +12,34 @@ func testConfig() *config.Config {
 	return &config.Config{
 		Products: map[string]config.ProductConfig{
 			"mobile": {
-				Glob:     "apps/mobile/**",
+				Globs:    []string{"apps/mobile/**"},
 				Variants: []string{"customerA", "customerB", "internal"},
 			},
 			"web": {
-				Glob:     "apps/web/**",
+				Globs:    []string{"apps/web/**"},
 				Variants: []string{"customerA", "customerB"},
 			},
 			"sample-app": {
-				Glob: "apps/sample/**",
+				Globs: []string{"apps/sample/**"},
 				// No variants
+			},
+		},
+	}
+}
+
+func testConfigMultiGlob() *config.Config {
+	return &config.Config{
+		Products: map[string]config.ProductConfig{
+			"mobile": {
+				Globs:    []string{"apps/mobile/**", "libs/mobile-common/**"},
+				Variants: []string{"customerA", "customerB"},
+			},
+			"web": {
+				Globs:    []string{"apps/web/**", "libs/web-common/**"},
+				Variants: []string{"customerA"},
+			},
+			"sample-app": {
+				Globs: []string{"apps/sample/**"},
 			},
 		},
 	}
@@ -42,7 +60,7 @@ func TestNewMatcher_InvalidGlob(t *testing.T) {
 	cfg := &config.Config{
 		Products: map[string]config.ProductConfig{
 			"bad": {
-				Glob: "[invalid",
+				Globs: []string{"[invalid"},
 			},
 		},
 	}
@@ -114,6 +132,63 @@ func TestMatchFiles(t *testing.T) {
 	}
 }
 
+func TestMatchFiles_MultiGlob(t *testing.T) {
+	cfg := testConfigMultiGlob()
+	m, _ := NewMatcher(cfg)
+
+	tests := []struct {
+		name  string
+		files []string
+		want  []string
+	}{
+		{
+			name:  "file in primary glob",
+			files: []string{"apps/mobile/src/main.ts"},
+			want:  []string{"mobile"},
+		},
+		{
+			name:  "file in secondary glob",
+			files: []string{"libs/mobile-common/utils.ts"},
+			want:  []string{"mobile"},
+		},
+		{
+			name:  "files in both globs of same product",
+			files: []string{"apps/mobile/main.ts", "libs/mobile-common/utils.ts"},
+			want:  []string{"mobile"},
+		},
+		{
+			name:  "files matching different products via secondary globs",
+			files: []string{"libs/mobile-common/utils.ts", "libs/web-common/styles.css"},
+			want:  []string{"mobile", "web"},
+		},
+		{
+			name:  "no match in either glob",
+			files: []string{"libs/shared/util.ts"},
+			want:  []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := m.MatchFiles(tt.files)
+			sort.Strings(got)
+			sort.Strings(tt.want)
+
+			if len(got) != len(tt.want) {
+				t.Errorf("got %v, want %v", got, tt.want)
+				return
+			}
+
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("got %v, want %v", got, tt.want)
+					return
+				}
+			}
+		})
+	}
+}
+
 func TestMatchCommit(t *testing.T) {
 	cfg := testConfig()
 	m, _ := NewMatcher(cfg)
@@ -158,7 +233,7 @@ func TestMatchCommit(t *testing.T) {
 			want:   nil,
 		},
 		{
-			name:   "Example 5: product without variants",
+			name:   "Example 5: product without variants - unscoped commit",
 			commit: commit.Commit{Type: "feat", Scope: "", Description: "sample update"},
 			files:  []string{"apps/sample/main.go"},
 			want: []config.ProductVariant{
@@ -166,7 +241,23 @@ func TestMatchCommit(t *testing.T) {
 			},
 		},
 		{
-			name:   "scoped commit with non-matching variant -> no results",
+			name:   "Example 6: product without variants - scoped commit (scope ignored)",
+			commit: commit.Commit{Type: "feat", Scope: "customerA", Description: "sample update"},
+			files:  []string{"apps/sample/main.go"},
+			want: []config.ProductVariant{
+				{Product: "sample-app", Variant: ""},
+			},
+		},
+		{
+			name:   "Example 7: product without variants - random scope (scope ignored)",
+			commit: commit.Commit{Type: "feat", Scope: "unknownScope", Description: "sample update"},
+			files:  []string{"apps/sample/main.go"},
+			want: []config.ProductVariant{
+				{Product: "sample-app", Variant: ""},
+			},
+		},
+		{
+			name:   "scoped commit with non-matching variant on product WITH variants -> no results",
 			commit: commit.Commit{Type: "feat", Scope: "nonexistent", Description: "something"},
 			files:  []string{"apps/mobile/foo.ts"},
 			want:   nil,
@@ -231,14 +322,64 @@ func TestFilterVariantsByScope_ProductWithoutVariants(t *testing.T) {
 	cfg := testConfig()
 	m, _ := NewMatcher(cfg)
 
-	// Unscoped commit touching sample-app
-	result := m.FilterVariantsByScope([]string{"sample-app"}, "")
-	if len(result) != 1 {
-		t.Errorf("expected 1 result, got %d", len(result))
-	}
-	if result[0].Product != "sample-app" || result[0].Variant != "" {
-		t.Errorf("unexpected result: %v", result[0])
-	}
+	t.Run("unscoped commit touching sample-app", func(t *testing.T) {
+		result := m.FilterVariantsByScope([]string{"sample-app"}, "")
+		if len(result) != 1 {
+			t.Errorf("expected 1 result, got %d", len(result))
+		}
+		if result[0].Product != "sample-app" || result[0].Variant != "" {
+			t.Errorf("unexpected result: %v", result[0])
+		}
+	})
+
+	t.Run("scoped commit touching sample-app - scope ignored", func(t *testing.T) {
+		result := m.FilterVariantsByScope([]string{"sample-app"}, "customerA")
+		if len(result) != 1 {
+			t.Errorf("expected 1 result, got %d", len(result))
+		}
+		if result[0].Product != "sample-app" || result[0].Variant != "" {
+			t.Errorf("unexpected result: %v", result[0])
+		}
+	})
+
+	t.Run("random scope touching sample-app - scope ignored", func(t *testing.T) {
+		result := m.FilterVariantsByScope([]string{"sample-app"}, "randomScope")
+		if len(result) != 1 {
+			t.Errorf("expected 1 result, got %d", len(result))
+		}
+		if result[0].Product != "sample-app" || result[0].Variant != "" {
+			t.Errorf("unexpected result: %v", result[0])
+		}
+	})
+}
+
+func TestFilterVariantsByScope_MixedProducts(t *testing.T) {
+	cfg := testConfig()
+	m, _ := NewMatcher(cfg)
+
+	t.Run("scoped commit affecting product with and without variants", func(t *testing.T) {
+		result := m.FilterVariantsByScope([]string{"mobile", "sample-app"}, "customerA")
+		sortPVs(result)
+
+		// Should get mobile-customerA AND sample-app (scope ignored for variant-less product)
+		expected := []config.ProductVariant{
+			{Product: "mobile", Variant: "customerA"},
+			{Product: "sample-app", Variant: ""},
+		}
+		sortPVs(expected)
+
+		if len(result) != len(expected) {
+			t.Errorf("expected %d results, got %d: %v", len(expected), len(result), result)
+			return
+		}
+
+		for i := range result {
+			if result[i] != expected[i] {
+				t.Errorf("got %v, want %v", result, expected)
+				return
+			}
+		}
+	})
 }
 
 func sortPVs(pvs []config.ProductVariant) {

@@ -55,28 +55,6 @@ func containsBreakingChange(body string) bool {
 		strings.Contains(bodyUpper, "BREAKING-CHANGE:")
 }
 
-// MatchesScopes returns true if:
-// - The commit has no scope (unscoped commits match all products), OR
-// - The commit's scope matches any of the given scopes
-// Returns false if the commit is not a valid conventional commit (no Type).
-func MatchesScopes(c Commit, scopes []string) bool {
-	// Not a conventional commit - doesn't match anything
-	if c.Type == "" {
-		return false
-	}
-	// Unscoped conventional commits match all products
-	if c.Scope == "" {
-		return true
-	}
-	// Check if scope matches any of the given scopes
-	for _, s := range scopes {
-		if c.Scope == s {
-			return true
-		}
-	}
-	return false
-}
-
 // DetermineBump analyzes a slice of commits and returns the highest bump level needed.
 // Returns "major", "minor", "patch", or "none".
 // Only considers commits with Type "feat" or "fix".
@@ -102,15 +80,4 @@ func DetermineBump(commits []Commit) string {
 	}
 
 	return bump
-}
-
-// FilterByScopes returns only commits that match any of the given scopes.
-func FilterByScopes(commits []Commit, scopes []string) []Commit {
-	var filtered []Commit
-	for _, c := range commits {
-		if MatchesScopes(c, scopes) {
-			filtered = append(filtered, c)
-		}
-	}
-	return filtered
 }

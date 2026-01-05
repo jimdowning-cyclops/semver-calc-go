@@ -164,72 +164,6 @@ func TestParse(t *testing.T) {
 	}
 }
 
-func TestMatchesScopes(t *testing.T) {
-	tests := []struct {
-		name   string
-		commit Commit
-		scopes []string
-		want   bool
-	}{
-		{
-			name:   "exact match",
-			commit: Commit{Type: "feat", Scope: "smartfittings"},
-			scopes: []string{"smartfittings", "app"},
-			want:   true,
-		},
-		{
-			name:   "match second scope",
-			commit: Commit{Type: "fix", Scope: "app"},
-			scopes: []string{"smartfittings", "app"},
-			want:   true,
-		},
-		{
-			name:   "no match",
-			commit: Commit{Type: "feat", Scope: "sdk"},
-			scopes: []string{"smartfittings", "app"},
-			want:   false,
-		},
-		{
-			name:   "unscoped conventional commit matches all",
-			commit: Commit{Type: "feat", Scope: ""},
-			scopes: []string{"smartfittings", "app"},
-			want:   true,
-		},
-		{
-			name:   "unscoped fix matches all",
-			commit: Commit{Type: "fix", Scope: ""},
-			scopes: []string{"sdk"},
-			want:   true,
-		},
-		{
-			name:   "non-conventional commit (no type) matches nothing",
-			commit: Commit{Type: "", Scope: ""},
-			scopes: []string{"smartfittings", "app"},
-			want:   false,
-		},
-		{
-			name:   "empty scopes list with scoped commit",
-			commit: Commit{Type: "feat", Scope: "smartfittings"},
-			scopes: []string{},
-			want:   false,
-		},
-		{
-			name:   "empty scopes list with unscoped commit still matches",
-			commit: Commit{Type: "feat", Scope: ""},
-			scopes: []string{},
-			want:   true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := MatchesScopes(tt.commit, tt.scopes); got != tt.want {
-				t.Errorf("MatchesScopes() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestDetermineBump(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -321,53 +255,6 @@ func TestDetermineBump(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := DetermineBump(tt.commits); got != tt.want {
 				t.Errorf("DetermineBump() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestFilterByScopes(t *testing.T) {
-	commits := []Commit{
-		{Type: "feat", Scope: "smartfittings"},
-		{Type: "fix", Scope: "bluemax"},
-		{Type: "feat", Scope: "app"},
-		{Type: "fix", Scope: "sdk"},
-		{Type: "refactor", Scope: ""},           // unscoped - matches all
-		{Type: "", Scope: "", Description: "x"}, // non-conventional - matches nothing
-	}
-
-	tests := []struct {
-		name   string
-		scopes []string
-		want   int
-	}{
-		{
-			name:   "smartfittings and app",
-			scopes: []string{"smartfittings", "app"},
-			want:   3, // smartfittings + app + unscoped
-		},
-		{
-			name:   "only sdk",
-			scopes: []string{"sdk"},
-			want:   2, // sdk + unscoped
-		},
-		{
-			name:   "harkensr only gets unscoped",
-			scopes: []string{"harkensr"},
-			want:   1, // just the unscoped commit
-		},
-		{
-			name:   "all scoped products plus unscoped",
-			scopes: []string{"smartfittings", "bluemax", "app", "sdk"},
-			want:   5, // all 4 scoped + unscoped
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			filtered := FilterByScopes(commits, tt.scopes)
-			if len(filtered) != tt.want {
-				t.Errorf("FilterByScopes() returned %d commits, want %d", len(filtered), tt.want)
 			}
 		})
 	}

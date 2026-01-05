@@ -9,7 +9,7 @@ import (
 // Matcher handles file-to-product-variant matching logic.
 type Matcher struct {
 	config *config.Config
-	globs  map[string]glob.Glob // Compiled globs per product
+	globs  map[string][]glob.Glob // Compiled globs per product (multiple per product)
 }
 
 // NewMatcher creates a new Matcher with the given config.
@@ -17,31 +17,38 @@ type Matcher struct {
 func NewMatcher(cfg *config.Config) (*Matcher, error) {
 	m := &Matcher{
 		config: cfg,
-		globs:  make(map[string]glob.Glob),
+		globs:  make(map[string][]glob.Glob),
 	}
 
-	// Compile all glob patterns
+	// Compile all glob patterns for each product
 	for productName := range cfg.Products {
-		pattern, _ := cfg.GetGlob(productName)
-		g, err := glob.Compile(pattern, '/')
-		if err != nil {
-			return nil, err
+		patterns, _ := cfg.GetGlobs(productName)
+		var compiledGlobs []glob.Glob
+		for _, pattern := range patterns {
+			g, err := glob.Compile(pattern, '/')
+			if err != nil {
+				return nil, err
+			}
+			compiledGlobs = append(compiledGlobs, g)
 		}
-		m.globs[productName] = g
+		m.globs[productName] = compiledGlobs
 	}
 
 	return m, nil
 }
 
 // MatchFiles returns which products are affected by a set of files.
-// A product is affected if any file matches its glob pattern.
+// A product is affected if any file matches any of its glob patterns (union logic).
 func (m *Matcher) MatchFiles(files []string) []string {
 	matchedProducts := make(map[string]bool)
 
 	for _, file := range files {
-		for productName, g := range m.globs {
-			if g.Match(file) {
-				matchedProducts[productName] = true
+		for productName, globs := range m.globs {
+			for _, g := range globs {
+				if g.Match(file) {
+					matchedProducts[productName] = true
+					break // One match is enough for this product
+				}
 			}
 		}
 	}
@@ -70,12 +77,21 @@ func (m *Matcher) MatchCommit(c commit.Commit, files []string) []config.ProductV
 }
 
 // FilterVariantsByScope filters variants based on commit scope.
-// - Empty scope -> all variants of each product
-// - Scoped commit -> only matching variant if it exists in that product
+// - Products WITHOUT variants: always included (scope is ignored)
+// - Products WITH variants:
+//   - Empty scope -> all variants
+//   - Scoped commit -> only matching variant if it exists
 func (m *Matcher) FilterVariantsByScope(products []string, scope string) []config.ProductVariant {
 	var result []config.ProductVariant
 
 	for _, product := range products {
+		if !m.config.HasVariants(product) {
+			// No variants: include product regardless of scope
+			result = append(result, config.ProductVariant{Product: product, Variant: ""})
+			continue
+		}
+
+		// Product has variants - scope determines which variants
 		variants, ok := m.config.GetVariantsForProduct(product)
 		if !ok {
 			continue
@@ -91,10 +107,6 @@ func (m *Matcher) FilterVariantsByScope(products []string, scope string) []confi
 					result = append(result, pv)
 					break
 				}
-			}
-			// Also check if product has no variants and scope matches product name
-			if !m.config.HasVariants(product) && scope == product {
-				result = append(result, config.ProductVariant{Product: product, Variant: ""})
 			}
 		}
 	}

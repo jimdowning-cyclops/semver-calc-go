@@ -1,11 +1,11 @@
 # semver-calc
 
-A Go CLI tool for calculating semantic versions in monorepos based on conventional commits with scope-based filtering and file-based product detection.
+A Go CLI tool for calculating semantic versions in monorepos based on conventional commits with file-based product detection.
 
 ## Features
 
-- **Scope-based filtering**: Filter commits by scope to calculate versions for specific products (legacy mode)
-- **File-based detection**: Automatically detect affected products using file globs (config mode)
+- **File-based detection**: Automatically detect affected products using file globs
+- **Multi-glob support**: Define multiple file patterns per product
 - **Variant support**: Handle multiple build variants per product (e.g., mobile-customerA, mobile-customerB)
 - **Monorepo support**: Multiple products can share a commit history with independent versioning
 - **Conventional commits**: Parses `feat`, `fix`, and breaking changes to determine bump level
@@ -36,34 +36,20 @@ GOOS=linux GOARCH=amd64 go build -o semver-calc-linux ./cmd/semver-calc
 
 ## Usage
 
-### Legacy Mode (--product/--scopes)
-
-```bash
-semver-calc --product <name> --scopes <scope1,scope2,...>
-```
-
-Example:
-```bash
-semver-calc --product myapp --scopes myapp,app
-
-# Output:
-{"product":"myapp","current":"2.3.1","next":"2.4.0","bump":"minor","commits":5}
-```
-
-### Config Mode (.semver.yml)
-
 Create a `.semver.yml` config file:
 
 ```yaml
 products:
   mobile:
-    glob: "apps/mobile/**"
+    globs:
+      - "apps/mobile/**"
+      - "libs/mobile-common/**"
     variants: [customerA, customerB, internal]
   web:
-    glob: "apps/web/**"
+    globs: ["apps/web/**"]
     variants: [customerA, customerB]
   sample-app:
-    glob: "apps/sample/**"
+    globs: ["apps/sample/**"]
     # No variants = single product mode
 ```
 
@@ -84,24 +70,22 @@ semver-calc --target sample-app
 
 | Flag | Description |
 |------|-------------|
-| `--product` | Product name (legacy mode) |
-| `--scopes` | Comma-separated list of scopes (legacy mode) |
 | `--config` | Path to config file (default: `.semver.yml`) |
 | `--config-content` | Inline YAML config (takes precedence over `--config`) |
 | `--target` | Specific product-variant to calculate |
 | `--all` | Calculate all products in config |
 
-## Config Mode: File-Based Detection with Variants
+## How It Works
 
-Config mode uses git diff to detect which products are affected by each commit's file changes.
+### File-Based Detection with Variants
 
-### How it works
-
-1. Each product defines a file glob pattern (e.g., `apps/mobile/**`)
-2. When a commit touches files matching a product's glob, that product is affected
+1. Each product defines one or more file glob patterns (e.g., `apps/mobile/**`)
+2. When a commit touches files matching any of a product's globs, that product is affected
 3. The commit's scope determines which variants get bumped:
-   - **Unscoped commits** (`feat: ...`) bump **ALL** variants of affected products
-   - **Scoped commits** (`feat(customerA): ...`) bump only the **matching variant**
+   - **Products WITHOUT variants**: Always bumped if files match (scope is ignored)
+   - **Products WITH variants**:
+     - **Unscoped commits** (`feat: ...`) bump **ALL** variants
+     - **Scoped commits** (`feat(customerA): ...`) bump only the **matching variant**
 
 ### Examples
 
@@ -110,11 +94,13 @@ Given this config:
 ```yaml
 products:
   mobile:
-    glob: "apps/mobile/**"
+    globs: ["apps/mobile/**", "libs/mobile-common/**"]
     variants: [customerA, customerB, internal]
   web:
-    glob: "apps/web/**"
+    globs: ["apps/web/**"]
     variants: [customerA, customerB]
+  sample-app:
+    globs: ["apps/sample/**"]
 ```
 
 | Commit | Files Touched | Result |
@@ -122,79 +108,39 @@ products:
 | `feat: update component` | `apps/mobile/foo.ts` | Bumps mobile-customerA, mobile-customerB, mobile-internal |
 | `feat(customerA): special feature` | `apps/mobile/foo.ts`, `apps/web/bar.ts` | Bumps mobile-customerA, web-customerA |
 | `fix(customerB): bug fix` | `apps/mobile/bug.ts` | Bumps mobile-customerB only |
-| `feat: shared change` | `libs/shared/util.ts` | No bumps (no glob match) |
+| `feat: shared lib update` | `libs/mobile-common/util.ts` | Bumps mobile-customerA, mobile-customerB, mobile-internal |
+| `feat(unknownScope): change` | `apps/sample/main.ts` | Bumps sample-app (scope ignored for products without variants) |
+| `feat: shared change` | `libs/unrelated/util.ts` | No bumps (no glob match) |
 
 ### Tag Format
 
 - Products without variants: `{product}-v{version}` (e.g., `sample-app-v1.2.3`)
 - Products with variants: `{product}-{variant}-v{version}` (e.g., `mobile-customerA-v1.2.3`)
 
-## How Legacy Mode Works
+### Version Calculation
 
-### 1. Find the last tag
+1. Finds the last tag matching the product-variant pattern
+2. Gets all commits since that tag
+3. For each commit, checks if it affects the target:
+   - File changes must match any of the product's globs
+   - Scope must match the variant (or commit must be unscoped)
+4. Determines bump level from matching commits
+5. Calculates and outputs the next version
 
-Looks for tags matching `{product}-v{semver}`:
-
-```
-myapp-v2.3.1        ✓ matches --product myapp
-other-app-v1.0.0    ✓ matches --product other-app
-sdk-v1.0.0_internal ✗ ignored (has suffix)
-```
-
-If no tag exists, defaults to `v0.0.0`.
-
-### 2. Get commits since that tag
-
-Retrieves all commits from the tag to HEAD.
-
-### 3. Filter by scope
-
-Only commits matching the specified scopes are considered:
-
-| Commit | `--scopes myapp,app` | `--scopes sdk` |
-|--------|----------------------|----------------|
-| `feat(myapp): add feature` | ✓ match | ✗ no match |
-| `fix(app): shared fix` | ✓ match | ✗ no match |
-| `feat(sdk): sdk feature` | ✗ no match | ✓ match |
-| `feat: global change` | ✓ match | ✓ match |
-| `Merge branch 'main'` | ✗ no match | ✗ no match |
-
-**Note**: Unscoped conventional commits (e.g., `feat: something`) match **all** products.
-
-### 4. Determine bump level
+### Bump Level
 
 | Commit pattern | Bump |
 |----------------|------|
-| `feat(scope)!:` or `BREAKING CHANGE:` in body | major |
-| `feat(scope):` | minor |
-| `fix(scope):` | patch |
+| `feat!:` or `BREAKING CHANGE:` in body | major |
+| `feat:` | minor |
+| `fix:` | patch |
 | `refactor`, `chore`, `docs`, etc. | none |
 
 The highest bump level wins. If multiple commits exist, `major > minor > patch > none`.
 
-### 5. Calculate next version
-
-```
-Current: 2.3.1
-Bump: minor
-Next: 2.4.0
-```
-
 ## JSON Output
 
-### Legacy mode
-
-```json
-{
-  "product": "myapp",
-  "current": "2.3.1",
-  "next": "2.4.0",
-  "bump": "minor",
-  "commits": 5
-}
-```
-
-### Config mode (single target)
+### Single target
 
 ```json
 {
@@ -208,7 +154,7 @@ Next: 2.4.0
 }
 ```
 
-### Config mode (--all)
+### All targets (--all)
 
 ```json
 {
@@ -257,24 +203,7 @@ BREAKING CHANGE: JWT tokens now expire after 1 hour
 
 This tool is available as a native Bitrise step.
 
-#### Legacy mode
-
-```yaml
-workflows:
-  deploy:
-    steps:
-      - git::https://github.com/jimdowning-cyclops/semver-calc-go.git@main:
-          title: Calculate semantic version
-          inputs:
-            - product: myapp
-            - scopes: myapp,app,core
-      - script:
-          inputs:
-            - content: |
-                echo "Next version: $SEMVER_NEXT"
-```
-
-#### Config mode (file)
+#### Using config file
 
 ```yaml
 workflows:
@@ -293,7 +222,7 @@ workflows:
                 echo "Next version: $SEMVER_NEXT"
 ```
 
-#### Config mode (inline)
+#### Using inline config
 
 You can inline the config directly in your bitrise.yml:
 
@@ -307,10 +236,10 @@ workflows:
             - config_content: |
                 products:
                   mobile:
-                    glob: "apps/mobile/**"
+                    globs: ["apps/mobile/**", "libs/mobile-common/**"]
                     variants: [customerA, customerB]
                   web:
-                    glob: "apps/web/**"
+                    globs: ["apps/web/**"]
                     variants: [customerA, customerB]
             - target: mobile-customerA
 ```
@@ -320,7 +249,7 @@ workflows:
 | Output | Description |
 |--------|-------------|
 | `SEMVER_PRODUCT` | Product name |
-| `SEMVER_VARIANT` | Variant name (config mode) |
+| `SEMVER_VARIANT` | Variant name |
 | `SEMVER_TAG_NAME` | Tag prefix (e.g., mobile-customerA) |
 | `SEMVER_CURRENT` | Current version |
 | `SEMVER_NEXT` | Next version |
@@ -341,51 +270,46 @@ workflows:
 
 ## Monorepo Example
 
-### Legacy mode (scope-based)
-
-For a monorepo with multiple apps sharing code:
+For a monorepo with multiple products and customer variants:
 
 ```
 mymonorepo/
 ├── apps/
-│   ├── app-a/
-│   ├── app-b/
-│   └── app-c/
-├── shared/
-│   └── core/
-└── sdk/
+│   ├── mobile/
+│   ├── web/
+│   └── sample/
+├── libs/
+│   ├── mobile-common/
+│   └── web-common/
+└── services/
+    └── backend/
 ```
 
-Configure scopes per product:
-
-| Product | Scopes | Matches |
-|---------|--------|---------|
-| app-a | `app-a,app,core` | Product-specific + shared app + core changes |
-| app-b | `app-b,app,core` | Product-specific + shared app + core changes |
-| sdk | `sdk` | SDK changes only |
-
-### Config mode (file-based with variants)
-
-For a monorepo with multiple products and customer variants:
+Configure with multi-glob support:
 
 ```yaml
 # .semver.yml
 products:
   mobile:
-    glob: "apps/mobile/**"
+    globs:
+      - "apps/mobile/**"
+      - "libs/mobile-common/**"
     variants: [customerA, customerB, internal]
   web:
-    glob: "apps/web/**"
+    globs:
+      - "apps/web/**"
+      - "libs/web-common/**"
     variants: [customerA, customerB]
   backend:
-    glob: "services/**"
+    globs: ["services/backend/**"]
     # No variants
 ```
 
 This allows:
 - File changes to automatically detect affected products
-- Customer-specific commits to only bump the relevant variant
-- Shared commits to bump all variants of affected products
+- Shared library changes to bump all variants of products using that library
+- Customer-specific scoped commits to only bump the relevant variant
+- Unscoped commits to bump all variants of affected products
 
 ## License
 

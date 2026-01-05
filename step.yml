@@ -2,45 +2,35 @@ title: Semantic Version Calculator
 summary: Calculate semantic version from conventional commits in monorepos
 description: |
   Calculates next semantic version based on git commit history using
-  conventional commits with scope-based filtering for monorepo support.
+  conventional commits with file-based product detection for monorepo support.
 
   ## Features
 
-  - **Scope-based filtering**: Filter commits by scope to calculate versions for specific products
-  - **File-based detection**: Automatically detect affected products using file globs (config mode)
+  - **File-based detection**: Automatically detect affected products using file globs
+  - **Multi-glob support**: Define multiple file patterns per product
   - **Variant support**: Handle multiple build variants per product (e.g., mobile-customerA)
   - **Monorepo support**: Multiple products can share a commit history with independent versioning
   - **Conventional commits**: Parses `feat`, `fix`, and breaking changes to determine bump level
 
-  ## Modes
+  ## How It Works
 
-  ### Legacy Mode (--product/--scopes)
-
-  1. Finds the last git tag matching `{product}-v{semver}`
-  2. Gets all commits since that tag
-  3. Filters commits by the specified scopes
-  4. Determines bump level (major/minor/patch/none) based on commit types
-  5. Calculates and exports the next version
-
-  ### Config Mode (.semver.yml)
-
-  1. Reads product definitions with file globs and optional variants
+  1. Reads product definitions with file globs and optional variants from config
   2. Uses git diff to detect which products are affected by each commit
-  3. Filters variants based on commit scope
+  3. Filters variants based on commit scope (scopes only affect variant selection)
   4. Calculates versions for each product-variant combination
 
   ## Commit format
 
   The step recognizes conventional commit format:
-  - `feat(scope):` triggers a minor bump
-  - `fix(scope):` triggers a patch bump
-  - `feat(scope)!:` or `BREAKING CHANGE:` in body triggers a major bump
-  - Unscoped commits (e.g., `feat: ...`) match ALL products
+  - `feat:` triggers a minor bump
+  - `fix:` triggers a patch bump
+  - `feat!:` or `BREAKING CHANGE:` in body triggers a major bump
+  - Scopes (e.g., `feat(customerA):`) filter which variants are bumped
 
   ## Tag format
 
-  - Legacy mode: `{product}-v{version}` (e.g., `myapp-v1.2.3`)
-  - Config mode with variants: `{product}-{variant}-v{version}` (e.g., `mobile-customerA-v1.2.3`)
+  - Products without variants: `{product}-v{version}` (e.g., `myapp-v1.2.3`)
+  - Products with variants: `{product}-{variant}-v{version}` (e.g., `mobile-customerA-v1.2.3`)
 
 website: https://github.com/jimdowning-cyclops/semver-calc-go
 source_code_url: https://github.com/jimdowning-cyclops/semver-calc-go
@@ -57,39 +47,10 @@ toolkit:
     package_name: github.com/jimdowning-cyclops/semver-calc-go
 
 inputs:
-  - product: ""
-    opts:
-      title: "Product name"
-      summary: "Product name for tag prefix lookup (legacy mode)"
-      description: |
-        The product name used to find the last version tag.
-
-        Tags are expected in the format `{product}-v{version}`.
-        For example, if product is `myapp`, the step looks for tags like `myapp-v1.2.3`.
-
-        Required for legacy mode. Not used if config file is present.
-      is_required: false
-
-  - scopes: ""
-    opts:
-      title: "Scopes"
-      summary: "Comma-separated list of scopes to match (legacy mode)"
-      description: |
-        Comma-separated list of conventional commit scopes to include.
-
-        For example: `myapp,app,core`
-
-        - Commits with matching scopes are included in version calculation
-        - Unscoped conventional commits (e.g., `feat: ...`) match ALL products
-        - Non-conventional commits are ignored
-
-        Required for legacy mode. Not used if config file is present.
-      is_required: false
-
   - config: ".semver.yml"
     opts:
       title: "Config file path"
-      summary: "Path to config file for file-based product detection"
+      summary: "Path to config file for product detection"
       description: |
         Path to a YAML config file defining products, their file globs, and variants.
 
@@ -97,13 +58,15 @@ inputs:
         ```yaml
         products:
           mobile:
-            glob: "apps/mobile/**"
+            globs:
+              - "apps/mobile/**"
+              - "libs/mobile-common/**"
             variants: [customerA, customerB, internal]
           web:
-            glob: "apps/web/**"
+            globs: ["apps/web/**"]
             variants: [customerA, customerB]
           sample-app:
-            glob: "apps/sample/**"
+            globs: ["apps/sample/**"]
             # No variants = single product mode
         ```
       is_required: false
@@ -123,7 +86,7 @@ inputs:
               - config_content: |
                   products:
                     mobile:
-                      glob: "apps/mobile/**"
+                      globs: ["apps/mobile/**", "libs/mobile-common/**"]
                       variants: [customerA, customerB]
               - target: mobile-customerA
         ```
@@ -132,13 +95,13 @@ inputs:
   - target: ""
     opts:
       title: "Target product-variant"
-      summary: "Specific product-variant to calculate (config mode)"
+      summary: "Specific product-variant to calculate"
       description: |
         Calculate version for a specific product-variant.
 
         For example: `mobile-customerA` or `sample-app` (for products without variants)
 
-        Required if using config mode and not using --all.
+        Either --target or --all is required.
       is_required: false
 
 outputs:

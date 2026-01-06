@@ -61,13 +61,26 @@ func exportVariantOutputs(result VariantResult) error {
 	return nil
 }
 
+// verbose controls debug logging to stderr
+var verbose bool
+
+// debug prints a message to stderr if verbose mode is enabled
+func debug(format string, args ...interface{}) {
+	if verbose {
+		fmt.Fprintf(os.Stderr, "[DEBUG] "+format+"\n", args...)
+	}
+}
+
 func main() {
 	// Define flags
 	configFlag := flag.String("config", ".semver.yml", "Path to config file")
 	configContentFlag := flag.String("config-content", "", "Inline YAML config content (takes precedence over --config)")
 	targetFlag := flag.String("target", "", "Specific product-variant to calculate (e.g., mobile-customerA)")
 	allFlag := flag.Bool("all", false, "Calculate versions for all products in config")
+	verboseFlag := flag.Bool("verbose", false, "Enable verbose debug logging")
 	flag.Parse()
+
+	verbose = *verboseFlag
 
 	// Start with flag values
 	configPath := *configFlag
@@ -84,6 +97,13 @@ func main() {
 	if t := os.Getenv("target"); t != "" {
 		target = t
 	}
+	if os.Getenv("verbose") == "true" || os.Getenv("verbose") == "yes" {
+		verbose = true
+	}
+
+	debug("Config path: %s", configPath)
+	debug("Config content provided: %v", configContent != "")
+	debug("Target: %s", target)
 
 	// Load config from inline content or file
 	var cfg *config.Config
@@ -215,17 +235,22 @@ func parseTarget(cfg *config.Config, target string) (config.ProductVariant, erro
 
 // calculateForProductVariant calculates version bump for a single product-variant.
 func calculateForProductVariant(cfg *config.Config, m *matcher.Matcher, pv config.ProductVariant) (VariantResult, error) {
+	debug("Calculating for product=%s variant=%s tagPrefix=%s", pv.Product, pv.Variant, pv.TagPrefix)
+	debug("TagName() returns: %q", pv.TagName())
+
 	// Find last tag for this product-variant
 	tagName, currentVersion, err := git.FindLastTagByPrefix(pv.TagName())
 	if err != nil {
 		return VariantResult{}, fmt.Errorf("failed to find last tag: %w", err)
 	}
+	debug("Found last tag: %q with version %s", tagName, currentVersion.String())
 
 	// Get commits with files since that tag
 	commitInfos, err := git.GetCommitsSinceWithFiles(tagName)
 	if err != nil {
 		return VariantResult{}, fmt.Errorf("failed to get commits: %w", err)
 	}
+	debug("Found %d commits since tag", len(commitInfos))
 
 	// Filter commits that affect this product-variant
 	var relevantCommits []commit.Commit
@@ -235,13 +260,16 @@ func calculateForProductVariant(cfg *config.Config, m *matcher.Matcher, pv confi
 
 		// Check if this commit affects this product-variant
 		if m.MatchesProductVariant(c, ci.Files, pv) {
+			debug("  Relevant commit: %s %s (type=%s)", c.Hash[:7], c.Description, c.Type)
 			relevantCommits = append(relevantCommits, c)
 		}
 	}
+	debug("Filtered to %d relevant commits", len(relevantCommits))
 
 	// Determine bump level
 	bump := commit.DetermineBump(relevantCommits)
 	nextVersion := currentVersion.Bump(bump)
+	debug("Bump level: %s, next version: %s", bump, nextVersion.String())
 
 	return VariantResult{
 		Product: pv.Product,

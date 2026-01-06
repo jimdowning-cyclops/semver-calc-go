@@ -107,6 +107,15 @@ inputs:
         Either --target or --all is required.
       is_required: false
 
+  - verbose: "false"
+    opts:
+      title: "Verbose logging"
+      summary: "Enable debug logging to stderr"
+      description: |
+        Set to "true" or "yes" to enable verbose debug logging.
+        Debug output goes to stderr and won't interfere with JSON output.
+      is_required: false
+
 outputs:
   - SEMVER_PRODUCT:
     opts:

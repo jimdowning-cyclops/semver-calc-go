@@ -272,6 +272,61 @@ func TestGetCommitsSince_NoTag(t *testing.T) {
 	})
 }
 
+func TestFindLastTagByPrefix_SimpleVTags(t *testing.T) {
+	dir, cleanup := testRepo(t)
+	defer cleanup()
+
+	makeCommit(t, dir, "initial commit")
+
+	withDir(dir, func() {
+		// Create simple v* tags (no product prefix)
+		makeTag(t, dir, "v1.0.0")
+		makeCommit(t, dir, "another commit")
+		makeTag(t, dir, "v1.1.0")
+		makeCommit(t, dir, "yet another commit")
+		makeTag(t, dir, "v2.0.0")
+
+		// Also create a prefixed tag that should be ignored
+		makeTag(t, dir, "other-v3.0.0")
+
+		// Empty prefix should find simple v* tags
+		tag, v, err := FindLastTagByPrefix("")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tag != "v2.0.0" {
+			t.Errorf("expected v2.0.0, got %q", tag)
+		}
+		if v.String() != "2.0.0" {
+			t.Errorf("expected 2.0.0, got %v", v)
+		}
+	})
+}
+
+func TestFindLastTagByPrefix_NoMatchingTags(t *testing.T) {
+	dir, cleanup := testRepo(t)
+	defer cleanup()
+
+	makeCommit(t, dir, "initial commit")
+
+	withDir(dir, func() {
+		// Create only prefixed tags
+		makeTag(t, dir, "product-v1.0.0")
+
+		// Empty prefix should not find prefixed tags
+		tag, v, err := FindLastTagByPrefix("")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tag != "" {
+			t.Errorf("expected empty tag, got %q", tag)
+		}
+		if v != version.Zero() {
+			t.Errorf("expected zero version, got %v", v)
+		}
+	})
+}
+
 func TestIsGitRepository(t *testing.T) {
 	// Test in a git repo
 	dir, cleanup := testRepo(t)

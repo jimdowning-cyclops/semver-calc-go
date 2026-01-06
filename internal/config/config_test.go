@@ -56,6 +56,15 @@ func TestLoad(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "config with tag_prefix for simple v tags",
+			content: `products:
+  mylib:
+    globs: ["**/*"]
+    tag_prefix: v
+`,
+			wantErr: false,
+		},
+		{
 			name:        "empty products",
 			content:     `products: {}`,
 			wantErr:     true,
@@ -188,17 +197,20 @@ func TestParseInvalid(t *testing.T) {
 
 func TestProductVariant_TagName(t *testing.T) {
 	tests := []struct {
+		name string
 		pv   ProductVariant
 		want string
 	}{
-		{ProductVariant{Product: "mobile", Variant: "customerA"}, "mobile-customerA"},
-		{ProductVariant{Product: "mobile", Variant: "internal"}, "mobile-internal"},
-		{ProductVariant{Product: "sample-app", Variant: ""}, "sample-app"},
-		{ProductVariant{Product: "web", Variant: "customerB"}, "web-customerB"},
+		{"with variant", ProductVariant{Product: "mobile", Variant: "customerA"}, "mobile-customerA"},
+		{"with internal variant", ProductVariant{Product: "mobile", Variant: "internal"}, "mobile-internal"},
+		{"no variant", ProductVariant{Product: "sample-app", Variant: ""}, "sample-app"},
+		{"web with variant", ProductVariant{Product: "web", Variant: "customerB"}, "web-customerB"},
+		{"simple v tags", ProductVariant{Product: "mylib", Variant: "", TagPrefix: "v"}, ""},
+		{"custom prefix", ProductVariant{Product: "mylib", Variant: "", TagPrefix: "lib"}, "lib"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			got := tt.pv.TagName()
 			if got != tt.want {
 				t.Errorf("TagName() = %q, want %q", got, tt.want)
@@ -229,10 +241,10 @@ func TestConfig_GetAllProductVariants(t *testing.T) {
 
 	// Should be sorted by product, then variant
 	expected := []ProductVariant{
-		{Product: "mobile", Variant: "customerA"},
-		{Product: "mobile", Variant: "customerB"},
-		{Product: "sample-app", Variant: ""},
-		{Product: "web", Variant: "customerA"},
+		{Product: "mobile", Variant: "customerA", TagPrefix: ""},
+		{Product: "mobile", Variant: "customerB", TagPrefix: ""},
+		{Product: "sample-app", Variant: "", TagPrefix: ""},
+		{Product: "web", Variant: "customerA", TagPrefix: ""},
 	}
 
 	if len(pvs) != len(expected) {
@@ -246,6 +258,30 @@ func TestConfig_GetAllProductVariants(t *testing.T) {
 		if pv != expected[i] {
 			t.Errorf("index %d: got %v, want %v", i, pv, expected[i])
 		}
+	}
+}
+
+func TestConfig_GetAllProductVariants_WithTagPrefix(t *testing.T) {
+	cfg := &Config{
+		Products: map[string]ProductConfig{
+			"mylib": {
+				Globs:     []string{"**/*"},
+				TagPrefix: "v",
+			},
+		},
+	}
+
+	pvs := cfg.GetAllProductVariants()
+
+	if len(pvs) != 1 {
+		t.Fatalf("expected 1 product-variant, got %d", len(pvs))
+	}
+
+	if pvs[0].TagPrefix != "v" {
+		t.Errorf("expected TagPrefix 'v', got %q", pvs[0].TagPrefix)
+	}
+	if pvs[0].TagName() != "" {
+		t.Errorf("expected TagName() to return empty string for simple v tags, got %q", pvs[0].TagName())
 	}
 }
 

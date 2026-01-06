@@ -68,21 +68,20 @@ func main() {
 	allFlag := flag.Bool("all", false, "Calculate versions for all products in config")
 	flag.Parse()
 
-	// Handle Bitrise environment variables
+	// Start with flag values
 	configPath := *configFlag
 	configContent := *configContentFlag
 	target := *targetFlag
 
-	if isBitriseMode() {
-		if c := os.Getenv("config"); c != "" {
-			configPath = c
-		}
-		if cc := os.Getenv("config_content"); cc != "" {
-			configContent = cc
-		}
-		if t := os.Getenv("target"); t != "" {
-			target = t
-		}
+	// Environment variables override flags (for Bitrise step usage)
+	if c := os.Getenv("config"); c != "" {
+		configPath = c
+	}
+	if cc := os.Getenv("config_content"); cc != "" {
+		configContent = cc
+	}
+	if t := os.Getenv("target"); t != "" {
+		target = t
 	}
 
 	// Load config from inline content or file

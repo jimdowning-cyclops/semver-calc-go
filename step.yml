@@ -44,7 +44,7 @@ is_skippable: false
 
 toolkit:
   go:
-    package_name: github.com/jimdowning-cyclops/semver-calc-go/cmd/semver-calc
+    package_name: github.com/jimdowning-cyclops/semver-calc-go
 
 inputs:
   - config: ".semver.yml"

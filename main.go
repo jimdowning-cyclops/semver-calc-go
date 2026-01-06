@@ -30,9 +30,10 @@ type MultiResult struct {
 	Results []VariantResult `json:"results"`
 }
 
-// isBitriseMode returns true if running as a Bitrise step.
-func isBitriseMode() bool {
-	return os.Getenv("BITRISE_BUILD_NUMBER") != ""
+// hasEnvman returns true if envman is available for exporting outputs.
+func hasEnvman() bool {
+	_, err := exec.LookPath("envman")
+	return err == nil
 }
 
 // exportToEnvman exports a key-value pair using envman for subsequent Bitrise steps.
@@ -160,7 +161,7 @@ func runConfigMode(cfg *config.Config, target string, all bool) error {
 		if err := encoder.Encode(results[0]); err != nil {
 			return err
 		}
-		if isBitriseMode() {
+		if hasEnvman() {
 			if err := exportVariantOutputs(results[0]); err != nil {
 				return fmt.Errorf("failed to export outputs: %w", err)
 			}
@@ -171,7 +172,7 @@ func runConfigMode(cfg *config.Config, target string, all bool) error {
 			return err
 		}
 		// For Bitrise with multiple results, export as JSON
-		if isBitriseMode() {
+		if hasEnvman() {
 			jsonBytes, err := json.Marshal(MultiResult{Results: results})
 			if err != nil {
 				return err

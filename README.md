@@ -7,6 +7,7 @@ A Go CLI tool for calculating semantic versions in monorepos based on convention
 - **File-based detection**: Automatically detect affected products using file globs
 - **Multi-glob support**: Define multiple file patterns per product
 - **Variant support**: Handle multiple build variants per product (e.g., mobile-customerA, mobile-customerB)
+- **Custom tag prefixes**: Use simple `v1.0.0` tags or custom prefixes per product
 - **Monorepo support**: Multiple products can share a commit history with independent versioning
 - **Conventional commits**: Parses `feat`, `fix`, and breaking changes to determine bump level
 - **JSON output**: Easy integration with CI/CD pipelines
@@ -51,6 +52,8 @@ products:
   sample-app:
     globs: ["apps/sample/**"]
     # No variants = single product mode
+  my-lib:
+    tag_prefix: v  # Use simple v* tags (v1.0.0) instead of my-lib-v1.0.0
 ```
 
 Calculate versions:
@@ -114,8 +117,25 @@ products:
 
 ### Tag Format
 
+By default, tags follow this format:
 - Products without variants: `{product}-v{version}` (e.g., `sample-app-v1.2.3`)
 - Products with variants: `{product}-{variant}-v{version}` (e.g., `mobile-customerA-v1.2.3`)
+
+You can customize the tag prefix per product using the `tag_prefix` option:
+
+```yaml
+products:
+  my-lib:
+    tag_prefix: v  # Uses tags like v1.0.0, v1.1.0
+  api:
+    tag_prefix: api  # Uses tags like api-v1.0.0, api-v2.0.0
+```
+
+| Config | Tag Format |
+|--------|------------|
+| (default) | `{product}-v{version}` |
+| `tag_prefix: v` | `v{version}` |
+| `tag_prefix: custom` | `custom-v{version}` |
 
 ### Version Calculation
 
@@ -310,6 +330,22 @@ This allows:
 - Shared library changes to bump all variants of products using that library
 - Customer-specific scoped commits to only bump the relevant variant
 - Unscoped commits to bump all variants of affected products
+
+## Single Repository Example
+
+For a single-product repository using simple `v1.0.0` style tags:
+
+```yaml
+# .semver.yml
+products:
+  my-app:
+    tag_prefix: v  # Match tags like v1.0.0, v1.2.3
+```
+
+This is useful when:
+- You have a single product and don't need product-prefixed tags
+- You're migrating an existing repository that already uses `v*` tags
+- You prefer simpler tag names
 
 ## License
 

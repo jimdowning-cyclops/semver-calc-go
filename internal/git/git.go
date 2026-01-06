@@ -157,11 +157,25 @@ func IsGitRepository() bool {
 
 // FindLastTagByPrefix finds the most recent tag matching the given tag prefix.
 // This is useful for product-variant combinations like "mobile-customerA".
+// If tagPrefix is empty, looks for simple "v*" tags (e.g., "v1.2.3").
 // Returns the tag name, parsed version, and any error.
 // If no tag is found, returns empty string and zero version.
 func FindLastTagByPrefix(tagPrefix string) (string, version.Version, error) {
-	// Get all tags matching the prefix
-	pattern := fmt.Sprintf("%s-v*", tagPrefix)
+	// Determine pattern and regex based on prefix
+	var pattern string
+	var tagRegex *regexp.Regexp
+
+	if tagPrefix == "" {
+		// Simple tags: v1.2.3
+		pattern = "v*"
+		tagRegex = regexp.MustCompile(`^v(\d+\.\d+\.\d+)$`)
+	} else {
+		// Prefixed tags: product-v1.2.3
+		pattern = fmt.Sprintf("%s-v*", tagPrefix)
+		tagRegex = regexp.MustCompile(fmt.Sprintf(`^%s-v(\d+\.\d+\.\d+)$`, regexp.QuoteMeta(tagPrefix)))
+	}
+
+	// Get all tags matching the pattern
 	cmd := exec.Command("git", "tag", "-l", pattern)
 	output, err := cmd.Output()
 	if err != nil {
@@ -175,7 +189,6 @@ func FindLastTagByPrefix(tagPrefix string) (string, version.Version, error) {
 
 	// Parse and sort tags by version
 	var tagInfos []TagInfo
-	tagRegex := regexp.MustCompile(fmt.Sprintf(`^%s-v(\d+\.\d+\.\d+)$`, regexp.QuoteMeta(tagPrefix)))
 
 	for _, tag := range tags {
 		matches := tagRegex.FindStringSubmatch(tag)

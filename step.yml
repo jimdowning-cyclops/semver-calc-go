@@ -68,6 +68,9 @@ inputs:
           sample-app:
             globs: ["apps/sample/**"]
             # No variants = single product mode
+          my-lib:
+            globs: ["**/*"]
+            tag_prefix: v  # Use simple v* tags (v1.0.0) instead of my-lib-v1.0.0
         ```
       is_required: false
 

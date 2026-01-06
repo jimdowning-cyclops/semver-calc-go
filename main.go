@@ -189,9 +189,9 @@ func runConfigMode(cfg *config.Config, target string, all bool) error {
 // parseTarget parses a target string like "mobile-customerA" into a ProductVariant.
 func parseTarget(cfg *config.Config, target string) (config.ProductVariant, error) {
 	// First, check if target is just a product name (no variant)
-	if _, ok := cfg.Products[target]; ok {
+	if productCfg, ok := cfg.Products[target]; ok {
 		if !cfg.HasVariants(target) {
-			return config.ProductVariant{Product: target, Variant: ""}, nil
+			return config.ProductVariant{Product: target, Variant: "", TagPrefix: productCfg.TagPrefix}, nil
 		}
 	}
 
@@ -204,7 +204,7 @@ func parseTarget(cfg *config.Config, target string) (config.ProductVariant, erro
 			// Verify variant exists
 			for _, v := range productCfg.Variants {
 				if v == variant {
-					return config.ProductVariant{Product: productName, Variant: variant}, nil
+					return config.ProductVariant{Product: productName, Variant: variant, TagPrefix: productCfg.TagPrefix}, nil
 				}
 			}
 		}

@@ -83,7 +83,8 @@ func (m *Matcher) MatchCommit(c commit.Commit, files []string) []config.ProductV
 // - Products WITHOUT variants: always included (scope is ignored)
 // - Products WITH variants:
 //   - Empty scope -> all variants
-//   - Scoped commit -> only matching variant if it exists
+//   - Scoped commit matching a variant -> only that variant
+//   - Scoped commit NOT matching any variant -> all variants (treated as unscoped)
 func (m *Matcher) FilterVariantsByScope(products []string, scope string) []config.ProductVariant {
 	var result []config.ProductVariant
 
@@ -104,12 +105,18 @@ func (m *Matcher) FilterVariantsByScope(products []string, scope string) []confi
 			// Unscoped commit: include all variants
 			result = append(result, variants...)
 		} else {
-			// Scoped commit: only include if scope matches a variant
+			// Scoped commit: check if scope matches a known variant
+			matched := false
 			for _, pv := range variants {
 				if pv.Variant == scope {
 					result = append(result, pv)
+					matched = true
 					break
 				}
+			}
+			// If scope doesn't match any variant, treat as unscoped (include all variants)
+			if !matched {
+				result = append(result, variants...)
 			}
 		}
 	}

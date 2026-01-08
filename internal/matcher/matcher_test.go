@@ -322,10 +322,14 @@ func TestMatchCommit(t *testing.T) {
 			},
 		},
 		{
-			name:   "scoped commit with non-matching variant on product WITH variants -> no results",
+			name:   "scoped commit with non-matching variant on product WITH variants -> all variants (treated as unscoped)",
 			commit: commit.Commit{Type: "feat", Scope: "nonexistent", Description: "something"},
 			files:  []string{"apps/mobile/foo.ts"},
-			want:   nil,
+			want: []config.ProductVariant{
+				{Product: "mobile", Variant: "customerA"},
+				{Product: "mobile", Variant: "customerB"},
+				{Product: "mobile", Variant: "internal"},
+			},
 		},
 		{
 			name:   "internal variant only",

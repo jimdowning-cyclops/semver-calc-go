@@ -75,6 +75,11 @@ func TestResolveTargets(t *testing.T) {
 			wantErr: "requires a variant",
 		},
 		{
+			name:    "variant without product",
+			variant: "customerA",
+			wantErr: "--variant requires --product",
+		},
+		{
 			name:    "neither product nor all",
 			wantErr: "either --product or --all is required",
 		},

@@ -182,6 +182,10 @@ func resolveTargets(cfg *config.Config, product, variant string, all bool) ([]co
 		}}, nil
 	}
 
+	if variant != "" {
+		return nil, fmt.Errorf("--variant requires --product")
+	}
+
 	if all {
 		return cfg.GetAllProductVariants(), nil
 	}

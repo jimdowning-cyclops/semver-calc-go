@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/jimdowning-cyclops/semver-calc-go/internal/commit"
 	"github.com/jimdowning-cyclops/semver-calc-go/internal/config"
@@ -75,7 +74,8 @@ func main() {
 	// Define flags
 	configFlag := flag.String("config", ".semver.yml", "Path to config file")
 	configContentFlag := flag.String("config-content", "", "Inline YAML config content (takes precedence over --config)")
-	targetFlag := flag.String("target", "", "Specific product-variant to calculate (e.g., mobile-customerA)")
+	productFlag := flag.String("product", "", "Product to calculate version for")
+	variantFlag := flag.String("variant", "", "Variant within a product (requires --product)")
 	allFlag := flag.Bool("all", false, "Calculate versions for all products in config")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose debug logging")
 	flag.Parse()
@@ -85,7 +85,8 @@ func main() {
 	// Start with flag values
 	configPath := *configFlag
 	configContent := *configContentFlag
-	target := *targetFlag
+	product := *productFlag
+	variant := *variantFlag
 
 	// Environment variables override flags (for Bitrise step usage)
 	if c := os.Getenv("config"); c != "" {
@@ -94,8 +95,11 @@ func main() {
 	if cc := os.Getenv("config_content"); cc != "" {
 		configContent = cc
 	}
-	if t := os.Getenv("target"); t != "" {
-		target = t
+	if p := os.Getenv("product"); p != "" {
+		product = p
+	}
+	if v := os.Getenv("variant"); v != "" {
+		variant = v
 	}
 	if os.Getenv("verbose") == "true" || os.Getenv("verbose") == "yes" {
 		verbose = true
@@ -103,7 +107,7 @@ func main() {
 
 	debug("Config path: %s", configPath)
 	debug("Config content provided: %v", configContent != "")
-	debug("Target: %s", target)
+	debug("Product: %s, Variant: %s", product, variant)
 
 	// Load config from inline content or file
 	var cfg *config.Config
@@ -123,22 +127,70 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error: a config file is required")
 			fmt.Fprintln(os.Stderr, "")
 			fmt.Fprintln(os.Stderr, "Usage:")
-			fmt.Fprintln(os.Stderr, "  semver-calc --all                      # Calculate all products")
-			fmt.Fprintln(os.Stderr, "  semver-calc --target=mobile-customerA  # Calculate specific variant")
+			fmt.Fprintln(os.Stderr, "  semver-calc --all                          # Calculate all products")
+			fmt.Fprintln(os.Stderr, "  semver-calc --product=mobile --variant=customerA  # Calculate specific variant")
 			fmt.Fprintln(os.Stderr, "  semver-calc --config=path/to/.semver.yml")
-			fmt.Fprintln(os.Stderr, "  semver-calc --config-content='...'     # Inline YAML config")
+			fmt.Fprintln(os.Stderr, "  semver-calc --config-content='...'         # Inline YAML config")
 			os.Exit(1)
 		}
 	}
 
-	if err := runConfigMode(cfg, target, *allFlag); err != nil {
+	if err := runConfigMode(cfg, product, variant, *allFlag); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
+// resolveTargets determines which product-variants to process based on product, variant, and all flags.
+func resolveTargets(cfg *config.Config, product, variant string, all bool) ([]config.ProductVariant, error) {
+	if product != "" {
+		productCfg, ok := cfg.Products[product]
+		if !ok {
+			return nil, fmt.Errorf("unknown product %q", product)
+		}
+
+		if variant != "" {
+			// Verify product has variants and the specified variant exists
+			if !cfg.HasVariants(product) {
+				return nil, fmt.Errorf("product %q does not have variants", product)
+			}
+			found := false
+			for _, v := range productCfg.Variants {
+				if v == variant {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("unknown variant %q for product %q", variant, product)
+			}
+			return []config.ProductVariant{{
+				Product:   product,
+				Variant:   variant,
+				TagPrefix: productCfg.TagPrefix,
+			}}, nil
+		}
+
+		// No variant specified
+		if cfg.HasVariants(product) {
+			return nil, fmt.Errorf("product %q requires a variant (--variant); available: %v", product, productCfg.Variants)
+		}
+		return []config.ProductVariant{{
+			Product:   product,
+			Variant:   "",
+			TagPrefix: productCfg.TagPrefix,
+		}}, nil
+	}
+
+	if all {
+		return cfg.GetAllProductVariants(), nil
+	}
+
+	return nil, fmt.Errorf("either --product or --all is required")
+}
+
 // runConfigMode runs with a config file for file-based product detection.
-func runConfigMode(cfg *config.Config, target string, all bool) error {
+func runConfigMode(cfg *config.Config, product, variant string, all bool) error {
 	if !git.IsGitRepository() {
 		return fmt.Errorf("not a git repository")
 	}
@@ -150,18 +202,9 @@ func runConfigMode(cfg *config.Config, target string, all bool) error {
 	}
 
 	// Determine which product-variants to process
-	var targets []config.ProductVariant
-	if target != "" {
-		// Parse target like "mobile-customerA"
-		pv, err := parseTarget(cfg, target)
-		if err != nil {
-			return err
-		}
-		targets = []config.ProductVariant{pv}
-	} else if all {
-		targets = cfg.GetAllProductVariants()
-	} else {
-		return fmt.Errorf("either --target or --all is required in config mode")
+	targets, err := resolveTargets(cfg, product, variant, all)
+	if err != nil {
+		return err
 	}
 
 	// Calculate version for each target
@@ -204,33 +247,6 @@ func runConfigMode(cfg *config.Config, target string, all bool) error {
 	}
 
 	return nil
-}
-
-// parseTarget parses a target string like "mobile-customerA" into a ProductVariant.
-func parseTarget(cfg *config.Config, target string) (config.ProductVariant, error) {
-	// First, check if target is just a product name (no variant)
-	if productCfg, ok := cfg.Products[target]; ok {
-		if !cfg.HasVariants(target) {
-			return config.ProductVariant{Product: target, Variant: "", TagPrefix: productCfg.TagPrefix}, nil
-		}
-	}
-
-	// Try to find product-variant match
-	for productName, productCfg := range cfg.Products {
-		// Check if target starts with product name followed by hyphen
-		prefix := productName + "-"
-		if strings.HasPrefix(target, prefix) {
-			variant := strings.TrimPrefix(target, prefix)
-			// Verify variant exists
-			for _, v := range productCfg.Variants {
-				if v == variant {
-					return config.ProductVariant{Product: productName, Variant: variant, TagPrefix: productCfg.TagPrefix}, nil
-				}
-			}
-		}
-	}
-
-	return config.ProductVariant{}, fmt.Errorf("unknown target %q - must be a valid product or product-variant", target)
 }
 
 // calculateForProductVariant calculates version bump for a single product-variant.

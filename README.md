@@ -63,10 +63,10 @@ Calculate versions:
 semver-calc --all
 
 # Calculate specific product-variant
-semver-calc --target mobile-customerA
+semver-calc --product mobile --variant customerA
 
 # Calculate product without variants
-semver-calc --target sample-app
+semver-calc --product sample-app
 ```
 
 ### Flags
@@ -75,7 +75,8 @@ semver-calc --target sample-app
 |------|-------------|
 | `--config` | Path to config file (default: `.semver.yml`) |
 | `--config-content` | Inline YAML config (takes precedence over `--config`) |
-| `--target` | Specific product-variant to calculate |
+| `--product` | Product to calculate version for |
+| `--variant` | Variant within a product (requires `--product`) |
 | `--all` | Calculate all products in config |
 
 ## How It Works
@@ -233,7 +234,8 @@ workflows:
           title: Calculate version for mobile-customerA
           inputs:
             - config: .semver.yml
-            - target: mobile-customerA
+            - product: mobile
+            - variant: customerA
       - script:
           inputs:
             - content: |
@@ -261,7 +263,8 @@ workflows:
                   web:
                     globs: ["apps/web/**"]
                     variants: [customerA, customerB]
-            - target: mobile-customerA
+            - product: mobile
+            - variant: customerA
 ```
 
 #### Outputs
@@ -283,7 +286,7 @@ workflows:
 - name: Calculate version
   id: version
   run: |
-    RESULT=$(./semver-calc --target mobile-customerA)
+    RESULT=$(./semver-calc --product mobile --variant customerA)
     echo "next=$(echo $RESULT | jq -r '.next')" >> $GITHUB_OUTPUT
     echo "bump=$(echo $RESULT | jq -r '.bump')" >> $GITHUB_OUTPUT
 ```

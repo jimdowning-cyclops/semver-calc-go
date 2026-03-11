@@ -95,16 +95,28 @@ inputs:
         ```
       is_required: false
 
-  - target: ""
+  - product: ""
     opts:
-      title: "Target product-variant"
-      summary: "Specific product-variant to calculate"
+      title: "Product name"
+      summary: "Product to calculate version for"
       description: |
-        Calculate version for a specific product-variant.
+        Product name as defined in the config file.
 
-        For example: `mobile-customerA` or `sample-app` (for products without variants)
+        For example: `mobile` or `sample-app`
 
-        Either --target or --all is required.
+        Either --product or --all is required.
+      is_required: false
+
+  - variant: ""
+    opts:
+      title: "Variant name"
+      summary: "Variant within a product (requires --product)"
+      description: |
+        Variant name for products with variants defined.
+
+        For example: `customerA`
+
+        Required when the product has variants configured.
       is_required: false
 
   - verbose: "false"

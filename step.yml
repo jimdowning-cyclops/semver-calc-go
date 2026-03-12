@@ -119,6 +119,16 @@ inputs:
         Required when the product has variants configured.
       is_required: false
 
+  - changelog: "false"
+    opts:
+      title: "Include changelog commits in output"
+      summary: "Include version-grouped commit details in JSON output"
+      description: |
+        Set to "true" or "yes" to include a changelog array in the output.
+        Each entry represents a released version and the commits that went into it
+        (between the previous tag and this tag), filtered by product globs and variant scope.
+      is_required: false
+
   - verbose: "false"
     opts:
       title: "Verbose logging"

@@ -13,15 +13,34 @@ import (
 	"github.com/jimdowning-cyclops/semver-calc-go/internal/matcher"
 )
 
+// ChangelogCommit represents a single commit in a changelog entry.
+type ChangelogCommit struct {
+	Hash        string `json:"hash"`
+	Type        string `json:"type"`
+	Scope       string `json:"scope"`
+	Description string `json:"description"`
+	Body        string `json:"body,omitempty"`
+	Breaking    bool   `json:"breaking"`
+}
+
+// ChangelogVersion represents a released version and the commits that went into it.
+type ChangelogVersion struct {
+	Version string            `json:"version"`
+	Tag     string            `json:"tag"`
+	Date    string            `json:"date"`
+	Commits []ChangelogCommit `json:"commits"`
+}
+
 // VariantResult is the JSON output for a single product-variant.
 type VariantResult struct {
-	Product string `json:"product"`
-	Variant string `json:"variant,omitempty"`
-	TagName string `json:"tagName"`
-	Current string `json:"current"`
-	Next    string `json:"next"`
-	Bump    string `json:"bump"`
-	Commits int    `json:"commits"`
+	Product   string             `json:"product"`
+	Variant   string             `json:"variant,omitempty"`
+	TagName   string             `json:"tagName"`
+	Current   string             `json:"current"`
+	Next      string             `json:"next"`
+	Bump      string             `json:"bump"`
+	Commits   int                `json:"commits"`
+	Changelog []ChangelogVersion `json:"changelog,omitempty"`
 }
 
 // MultiResult is the JSON output when using config mode with --all.
@@ -77,6 +96,7 @@ func main() {
 	productFlag := flag.String("product", "", "Product to calculate version for")
 	variantFlag := flag.String("variant", "", "Variant within a product (requires --product)")
 	allFlag := flag.Bool("all", false, "Calculate versions for all products in config")
+	changelogFlag := flag.Bool("changelog", false, "Include changelog commits grouped by version in output")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose debug logging")
 	flag.Parse()
 
@@ -103,6 +123,11 @@ func main() {
 	}
 	if os.Getenv("verbose") == "true" || os.Getenv("verbose") == "yes" {
 		verbose = true
+	}
+
+	changelog := *changelogFlag
+	if os.Getenv("changelog") == "true" || os.Getenv("changelog") == "yes" {
+		changelog = true
 	}
 
 	debug("Config path: %s", configPath)
@@ -135,7 +160,7 @@ func main() {
 		}
 	}
 
-	if err := runConfigMode(cfg, product, variant, *allFlag); err != nil {
+	if err := runConfigMode(cfg, product, variant, *allFlag, changelog); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -194,7 +219,7 @@ func resolveTargets(cfg *config.Config, product, variant string, all bool) ([]co
 }
 
 // runConfigMode runs with a config file for file-based product detection.
-func runConfigMode(cfg *config.Config, product, variant string, all bool) error {
+func runConfigMode(cfg *config.Config, product, variant string, all, changelog bool) error {
 	if !git.IsGitRepository() {
 		return fmt.Errorf("not a git repository")
 	}
@@ -217,6 +242,13 @@ func runConfigMode(cfg *config.Config, product, variant string, all bool) error 
 		result, err := calculateForProductVariant(cfg, m, pv)
 		if err != nil {
 			return fmt.Errorf("failed to calculate for %s: %w", pv.TagName(), err)
+		}
+		if changelog {
+			cl, err := buildChangelog(m, pv)
+			if err != nil {
+				return fmt.Errorf("failed to build changelog for %s: %w", pv.TagName(), err)
+			}
+			result.Changelog = cl
 		}
 		results = append(results, result)
 	}
@@ -300,4 +332,88 @@ func calculateForProductVariant(cfg *config.Config, m *matcher.Matcher, pv confi
 		Bump:    bump,
 		Commits: len(relevantCommits),
 	}, nil
+}
+
+// buildChangelog walks all tags for a product-variant and collects commits between each pair.
+// Returns changelog entries ordered newest-version-first.
+func buildChangelog(m *matcher.Matcher, pv config.ProductVariant) ([]ChangelogVersion, error) {
+	debug("Building changelog for product=%s variant=%s", pv.Product, pv.Variant)
+
+	// Find all tags for this product-variant, sorted ascending by version
+	allTags, err := git.FindAllTagsByPrefix(pv.TagName())
+	if err != nil {
+		return nil, fmt.Errorf("failed to find tags: %w", err)
+	}
+
+	if len(allTags) == 0 {
+		debug("No tags found for changelog")
+		return nil, nil
+	}
+
+	debug("Found %d tags for changelog", len(allTags))
+
+	var changelog []ChangelogVersion
+
+	for i, tag := range allTags {
+		var fromRef string
+		if i > 0 {
+			fromRef = allTags[i-1].Name
+		}
+
+		debug("Collecting commits for %s (from=%q)", tag.Name, fromRef)
+
+		commitInfos, err := git.GetCommitsBetweenWithFiles(fromRef, tag.Name)
+		if err != nil {
+			debug("Warning: failed to get commits for %s: %v", tag.Name, err)
+			continue
+		}
+
+		// Filter commits by product-variant
+		var clCommits []ChangelogCommit
+		for _, ci := range commitInfos {
+			c := commit.Parse(ci.Subject, ci.Body)
+			c.Hash = ci.Hash
+
+			if m.MatchesProductVariant(c, ci.Files, pv) {
+				clc := ChangelogCommit{
+					Hash:        shortHash(ci.Hash),
+					Type:        c.Type,
+					Scope:       c.Scope,
+					Description: c.Description,
+					Body:        ci.Body,
+					Breaking:    c.Breaking,
+				}
+				clCommits = append(clCommits, clc)
+			}
+		}
+
+		// Get the tag date
+		tagDate, err := git.GetTagDate(tag.Name)
+		if err != nil {
+			debug("Warning: failed to get date for tag %s: %v", tag.Name, err)
+			tagDate = ""
+		}
+
+		changelog = append(changelog, ChangelogVersion{
+			Version: tag.Version.String(),
+			Tag:     tag.Name,
+			Date:    tagDate,
+			Commits: clCommits,
+		})
+	}
+
+	// Reverse to newest-first
+	for i, j := 0, len(changelog)-1; i < j; i, j = i+1, j-1 {
+		changelog[i], changelog[j] = changelog[j], changelog[i]
+	}
+
+	return changelog, nil
+}
+
+// shortHash returns the first 7 characters of a git hash.
+func shortHash(hash string) string {
+	if len(hash) > 7 {
+		return hash[:7]
+	}
+	return hash
 }

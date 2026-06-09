@@ -327,6 +327,50 @@ func TestFindLastTagByPrefix_NoMatchingTags(t *testing.T) {
 	})
 }
 
+func TestFindLastTagByPrefix_SkipsUnreachableTag(t *testing.T) {
+	dir, cleanup := testRepo(t)
+	defer cleanup()
+
+	// Build a history where the globally-highest tag sits on a divergent
+	// line that is NOT part of the current branch:
+	//
+	//   c0 ── base (tag myproduct-v1.9.2) ── maintenance fix   <- HEAD
+	//                 └── 1.10 work (tag myproduct-v1.10.0)
+	//
+	// From the maintenance HEAD, v1.9.2 is reachable but v1.10.0 is not.
+	// The last tag for this branch must therefore be v1.9.2, not the
+	// globally-highest v1.10.0.
+	makeCommit(t, dir, "c0")
+	makeCommit(t, dir, "base for 1.9.2")
+	makeTag(t, dir, "myproduct-v1.9.2")
+
+	// Divergent line carrying the newer, globally-highest tag.
+	if err := runGit(dir, "checkout", "-b", "release-1.10"); err != nil {
+		t.Fatalf("failed to create divergent branch: %v", err)
+	}
+	makeCommit(t, dir, "1.10 work")
+	makeTag(t, dir, "myproduct-v1.10.0")
+
+	// Back to the maintenance line and advance it.
+	if err := runGit(dir, "checkout", "-"); err != nil {
+		t.Fatalf("failed to return to maintenance branch: %v", err)
+	}
+	makeCommit(t, dir, "1.9 maintenance fix")
+
+	withDir(dir, func() {
+		tag, v, err := FindLastTagByPrefix("myproduct")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tag != "myproduct-v1.9.2" {
+			t.Errorf("expected myproduct-v1.9.2 (highest reachable), got %q", tag)
+		}
+		if v.String() != "1.9.2" {
+			t.Errorf("expected 1.9.2, got %v", v)
+		}
+	})
+}
+
 func TestIsGitRepository(t *testing.T) {
 	// Test in a git repo
 	dir, cleanup := testRepo(t)

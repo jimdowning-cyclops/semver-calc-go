@@ -220,7 +220,33 @@ func FindLastTagByPrefix(tagPrefix string) (string, version.Version, error) {
 		return vi.Patch > vj.Patch
 	})
 
-	return tagInfos[0].Name, tagInfos[0].Version, nil
+	// Return the highest-versioned tag that is reachable from HEAD. A tag on a
+	// divergent line — e.g. a newer release tagged on another branch while this
+	// branch maintains an older line — is not part of this branch's history, so
+	// basing the next version on it would be wrong. Skip such tags.
+	for _, ti := range tagInfos {
+		reachable, err := IsTagReachableFromHead(ti.Name)
+		if err != nil {
+			return "", version.Zero(), err
+		}
+		if reachable {
+			return ti.Name, ti.Version, nil
+		}
+	}
+
+	// Tags exist for this prefix but none are reachable from HEAD. In a shallow
+	// clone this can be a false negative (the connecting history wasn't fetched),
+	// so surface it rather than silently treating this as a first release.
+	if IsShallowRepo() {
+		return "", version.Zero(), &ErrIncompleteHistory{
+			Tag:     tagInfos[0].Name,
+			Message: fmt.Sprintf("highest %q tag %s is not reachable from HEAD and the repository is a shallow clone; run 'git fetch --unshallow' to restore full history", pattern, tagInfos[0].Name),
+		}
+	}
+
+	// No tag for this prefix is part of the current branch's history; treat as
+	// no prior release for this line.
+	return "", version.Zero(), nil
 }
 
 // IsTagReachableFromHead checks if a tag's commit is an ancestor of HEAD.
